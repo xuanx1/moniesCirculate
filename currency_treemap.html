@@ -184,7 +184,7 @@
             pointer-events: none;
             z-index: 2000;
             box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-            max-width: 220px;
+            max-width: 312px;
             font-family: 'Gotham', 'Helvetica Neue', sans-serif;
             overflow: hidden;
         }
@@ -629,7 +629,7 @@
             
             // Calculate total from the data
             const totalValue = rootData.children.reduce((sum, child) => sum + child.weight, 0);
-            const displayValue = `RM ${(totalValue / 1000).toFixed(2)}B`;
+            const displayValue = `RM ${(totalValue / 1000).toFixed(2)} Billion`;
             
             // Update stats text directly using the global reference
             try {
@@ -769,10 +769,12 @@
             
             // Store reference for updating year during timeline scrubbing
             window.titleTextPath = titleTextPath;
+            // Store the title text element for progress coloring
+            window.titleText = titleText;
             
             // Create counterclockwise arc for stats (same path as title but reversed direction)
             const statsRadius = treemapRadius + 25;
-            const statsRotationOffset = -Math.PI * 150 / 180;  // Same rotation as title
+            const statsRotationOffset = -Math.PI * 145 / 180;  // Same rotation as title
             const statsArcStartAngle = Math.PI * 40 / 180 + statsRotationOffset;  // Reversed: end becomes start
             const statsArcEndAngle = -Math.PI * 120 / 180 + statsRotationOffset;  // Reversed: start becomes end
             
@@ -824,7 +826,7 @@
                 .attr('href', '#statsArc')
                 .attr('startOffset', '63%')
                 .attr('text-anchor', 'start')
-                .text('RM 0.00B');
+                .text('RM 0.00 Billion');
             
             // Store stats references for later updates
             window.statsTextPath = statsTextPath;
@@ -1062,9 +1064,25 @@
             // Track current index for animation
             window.timeline.currentIdx = dateIdx;
             
-            // Update timeline progress
+            // Update timeline progress with smooth animation
             const ratio = dateIdx / (window.allDates.length - 1);
-            window.timeline.progress.attr('width', window.timeline.width * ratio);
+            const targetWidth = window.timeline.width * ratio;
+            window.timeline.progress.transition()
+                .duration(1200)
+                .attr('width', targetWidth);
+            
+            // Update title color based on progress
+            if (window.titleText) {
+                // Create a gradient that progresses from start color to end color
+                const startColor = '#c06c84';
+                const endColor = '#f8b195';
+                // Interpolate between colors based on progress
+                const r = Math.round(192 + (248 - 192) * ratio);
+                const g = Math.round(108 + (177 - 108) * ratio);
+                const b = Math.round(132 + (149 - 132) * ratio);
+                const currentColor = `rgb(${r},${g},${b})`;
+                window.titleText.style('fill', currentColor);
+            }
             
             // Extract year from date
             const year = parseInt(date.split('-')[0]);
@@ -1091,8 +1109,23 @@
                 const totalValue = children.reduce((sum, child) => {
                     return sum + child.weight;
                 }, 0);
-                console.log('Total value for stats:', totalValue, 'Display:', `RM ${(totalValue / 1000).toFixed(2)}B`);
-                window.statsValueTextPath.text(`RM ${(totalValue / 1000).toFixed(2)}B`);
+                console.log('Total value for stats:', totalValue, 'Display:', `RM ${(totalValue / 1000).toFixed(2)} Billion`);
+                
+                // Store the target value for animated transitions
+                const currentValue = parseFloat(window.statsValueTextPath.attr('data-value')) || 0;
+                const targetValue = totalValue / 1000;
+                
+                // Animate the value change
+                d3.select({}).transition()
+                    .duration(1200)
+                    .tween('value', () => {
+                        const interpolate = d3.interpolate(currentValue, targetValue);
+                        return (t) => {
+                            const value = interpolate(t);
+                            window.statsValueTextPath.text(`RM ${value.toFixed(2)} Billion`);
+                            window.statsValueTextPath.attr('data-value', value);
+                        };
+                    });
             }
             
             const newData = {
@@ -1149,7 +1182,7 @@
                 })
                 .style('fill', d => d.data.color)
                 .style('stroke', 'white')
-                .style('stroke-width', 8)
+                .style('stroke-width', 3)
                 .style('stroke-linejoin', 'round')
                 .style('stroke-linecap', 'round');
             
@@ -1277,13 +1310,13 @@
                     if (denomMatch) {
                         const paths = getNotePaths(denomMatch[0], year);
                         imageHtml = `
-                            <div style="display: flex; flex-direction: column; align-items: center; gap: 6px; margin-bottom: 12px;">
+                            <div style="display: flex; flex-direction: column; align-items: center; gap: 16px; margin-bottom: 12px;">
                                 <div style="text-align: center;">
-                                    <img src="${paths.obverse}" style="width: 240px; height: auto; object-fit: contain; border: 2px solid #999; box-shadow: 0 2px 4px rgba(0,0,0,0.2);" />
+                                    <img src="${paths.obverse}" style="width: 288px; height: auto; object-fit: contain; border: 2px solid #999; box-shadow: 0 2px 4px rgba(0,0,0,0.2);" />
                                     <div style="font-size: 10px; color: #666; margin-top: 4px;">Obverse</div>
                                 </div>
                                 <div style="text-align: center;">
-                                    <img src="${paths.reverse}" style="width: 240px; height: auto; object-fit: contain; border: 2px solid #999; box-shadow: 0 2px 4px rgba(0,0,0,0.2);" />
+                                    <img src="${paths.reverse}" style="width: 288px; height: auto; object-fit: contain; border: 2px solid #999; box-shadow: 0 2px 4px rgba(0,0,0,0.2);" />
                                     <div style="font-size: 10px; color: #666; margin-top: 4px;">Reverse</div>
                                 </div>
                             </div>
@@ -1305,9 +1338,9 @@
                         
                         if (yearValues.length > 0) {
                             // Create SVG line chart for monthly trend
-                            const chartWidth = 180;
+                            const chartWidth = 260;
                             const chartHeight = 60;
-                            const padding = { top: 8, right: 8, bottom: 15, left: 30 };
+                            const padding = { top: 5, right: 5, bottom: 12, left: 25 };
                             
                             const minVal = Math.min(...yearValues);
                             const maxVal = Math.max(...yearValues);
@@ -1325,7 +1358,7 @@
                             monthlyDataHtml = `
                                 <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #ddd; width: 100%; overflow: hidden;">
                                     <div style="font-size: 10px; font-weight: 700; color: #333; margin-bottom: 4px;">${year} Monthly Trend</div>
-                                    <svg width="100%" height="auto" viewBox="0 0 ${chartWidth} ${chartHeight}" preserveAspectRatio="xMidYMid meet" style="border: 1px solid #ddd; border-radius: 2px; background: #fafafa; max-width: 100%; max-height: 60px; display: block;">
+                                    <svg width="100%" height="auto" viewBox="0 0 ${chartWidth} ${chartHeight}" preserveAspectRatio="xMidYMid meet" style="border-radius: 2px; background: #fafafa; max-width: 100%; max-height: 60px; display: block;">
                                         <!-- Y-axis -->
                                         <line x1="${padding.left}" y1="${padding.top}" x2="${padding.left}" y2="${chartHeight - padding.bottom}" stroke="#ddd" stroke-width="1"/>
                                         <!-- X-axis -->
@@ -1345,11 +1378,13 @@
                 tooltip.html(`
                     ${imageHtml}
                     <div class="tooltip-title">${getDenominationLabel(d.data.name)}</div>
-                    <div class="tooltip-value">Circulating Value: RM ${d.value.toFixed(0)}</div>
-                    <div class="progress-bar">
-                        <div class="progress-fill" style="width: ${percentage}%">
-                            ${percentage.toFixed(1)}%
+                    <div style="font-size: 10px; font-weight: 700; color: #333; margin-bottom: 4px;">Circulating Value</div>
+                    <div style="margin-bottom: 8px;">
+                        <div style="font-size: 14px; font-weight: 700; background: linear-gradient(90deg, #c06c84 0%, #f8b195 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; white-space: nowrap; margin-bottom: 4px;">RM ${d.value.toFixed(0)}M</div>
+                        <div class="progress-bar">
+                            <div class="progress-fill" style="width: ${percentage}%"></div>
                         </div>
+                        <div style="font-size: 10px; color: #666; margin-top: 2px; text-align: right;">${percentage.toFixed(1)}%</div>
                     </div>
                     ${monthlyDataHtml}
                 `)
@@ -1392,7 +1427,7 @@
                         .duration(transitionDuration)
                         .attr('d', `M${d.polygon.join(',')}z`)
                         .style('stroke', 'white')
-                        .style('stroke-width', 8)
+                        .style('stroke-width', 3)
                         .style('stroke-linejoin', 'round')
                         .style('stroke-linecap', 'round');
                 }
@@ -1516,7 +1551,7 @@
                     .attr('d', `M${d.polygon.join(',')}z`)
                     .style('fill', 'none')
                     .style('stroke', 'white')
-                    .style('stroke-width', 5)
+                    .style('stroke-width', 3)
                     .style('stroke-linejoin', 'round')
                     .style('stroke-linecap', 'round')
                     .style('pointer-events', 'none');
@@ -1576,13 +1611,13 @@
                         if (denomMatch) {
                             const paths = getNotePaths(denomMatch[0], year);
                             imageHtml = `
-                                <div style="display: flex; flex-direction: column; align-items: center; gap: 6px; margin-bottom: 12px;">
+                                <div style="display: flex; flex-direction: column; align-items: center; gap: 16px; margin-bottom: 12px;">
                                     <div style="text-align: center;">
-                                        <img src="${paths.obverse}" style="width: 240px; height: auto; object-fit: contain; border: 2px solid #999; box-shadow: 0 2px 4px rgba(0,0,0,0.2);" />
+                                        <img src="${paths.obverse}" style="width: 288px; height: auto; object-fit: contain; border: 2px solid #999; box-shadow: 0 2px 4px rgba(0,0,0,0.2);" />
                                         <div style="font-size: 10px; color: #666; margin-top: 4px;">Obverse</div>
                                     </div>
                                     <div style="text-align: center;">
-                                        <img src="${paths.reverse}" style="width: 240px; height: auto; object-fit: contain; border: 2px solid #999; box-shadow: 0 2px 4px rgba(0,0,0,0.2);" />
+                                        <img src="${paths.reverse}" style="width: 288px; height: auto; object-fit: contain; border: 2px solid #999; box-shadow: 0 2px 4px rgba(0,0,0,0.2);" />
                                         <div style="font-size: 10px; color: #666; margin-top: 4px;">Reverse</div>
                                     </div>
                                 </div>
@@ -1604,9 +1639,9 @@
                             
                             if (yearValues.length > 0) {
                                 // Create SVG line chart for monthly trend
-                                const chartWidth = 180;
+                                const chartWidth = 220;
                                 const chartHeight = 60;
-                                const padding = { top: 8, right: 8, bottom: 15, left: 30 };
+                                const padding = { top: 10, right: -30, bottom: 5, left: 20 };
                                 
                                 const minVal = Math.min(...yearValues);
                                 const maxVal = Math.max(...yearValues);
@@ -1624,7 +1659,7 @@
                                 monthlyDataHtml = `
                                     <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #ddd; width: 100%; overflow: hidden;">
                                         <div style="font-size: 10px; font-weight: 700; color: #333; margin-bottom: 4px;">${year} Monthly Trend</div>
-                                        <svg width="100%" height="auto" viewBox="0 0 ${chartWidth} ${chartHeight}" preserveAspectRatio="xMidYMid meet" style="border: 1px solid #ddd; border-radius: 2px; background: #fafafa; max-width: 100%; max-height: 60px; display: block;">
+                                        <svg width="100%" height="auto" viewBox="0 0 ${chartWidth} ${chartHeight}" preserveAspectRatio="xMidYMid meet" style="border-radius: 2px; background: #fafafa; max-width: 100%; max-height: 60px; display: block;">
                                             <!-- Y-axis -->
                                             <line x1="${padding.left}" y1="${padding.top}" x2="${padding.left}" y2="${chartHeight - padding.bottom}" stroke="#ddd" stroke-width="1"/>
                                             <!-- X-axis -->
@@ -1644,11 +1679,13 @@
                     tooltip.html(`
                         ${imageHtml}
                         <div class="tooltip-title">${getDenominationLabel(d.data.name)}</div>
-                        <div class="tooltip-value">Circulating Value: RM ${d.value.toFixed(0)}</div>
-                        <div class="progress-bar">
-                            <div class="progress-fill" style="width: ${percentage}%">
-                                ${percentage.toFixed(1)}%
+                        <div style="font-size: 10px; font-weight: 700; color: #333; margin-bottom: 4px;">Circulating Value</div>
+                        <div style="margin-bottom: 8px;">
+                            <div style="font-size: 14px; font-weight: 700; background: linear-gradient(90deg, #c06c84 0%, #f8b195 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; white-space: nowrap; margin-bottom: 4px;">RM ${d.value.toFixed(0)} Million</div>
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: ${percentage}%"></div>
                             </div>
+                            <div style="font-size: 10px; color: #666; margin-top: 2px; text-align: right;">${percentage.toFixed(1)}%  of All Circulations</div>
                         </div>
                         ${monthlyDataHtml}
                     `)
