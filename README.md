@@ -4,7 +4,9 @@ An interactive [visualization](https://xuanx1.github.io/moniesCirculate/currency
 
 ## Overview
 
-This project provides an animated, interactive visualization of Malaysian currency in circulation from historical data. The visualization uses a Voronoi treemap to represent different banknote denominations, with smooth morphing animations as you navigate through years.
+This project provides an animated, interactive visualization of Malaysian currency in circulation from historical data. The visualization uses a Voronoi treemap to represent different banknote denominations, with smooth morphing animations as you navigate through various years.
+
+![Screenshot 2025-12-07 221842](https://github.com/user-attachments/assets/e41cd872-c72d-46d7-8d85-fc2eec790f30)
 
 ## Features
 
