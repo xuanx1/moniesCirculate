@@ -176,66 +176,123 @@
 
         .hover-tooltip {
             position: fixed;
-            background: white;
-            border: 2px solid #333;
-            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.95);
+            border: 2px solid #999;
+            border-radius: 4px;
             padding: 12px;
             font-size: 12px;
             pointer-events: none;
             z-index: 2000;
-            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
-            max-width: 200px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            max-width: 220px;
+            font-family: 'Gotham', 'Helvetica Neue', sans-serif;
+            overflow: hidden;
         }
 
         .tooltip-title {
-            font-weight: bold;
-            font-size: 13px;
-            margin-bottom: 6px;
-            color: #333;
+            font-weight: 900;
+            font-size: 16px;
+            margin-bottom: 10px;
+            background: linear-gradient(90deg, #c06c84 0%, #f8b195 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            letter-spacing: 1px;
         }
 
         .tooltip-value {
             margin-bottom: 8px;
-            color: #555;
+            color: #666;
+            font-size: 11px;
         }
 
         .progress-bar {
             width: 100%;
-            height: 18px;
+            height: 8px;
             background: #e0e0e0;
-            border-radius: 4px;
+            border-radius: 2px;
             overflow: hidden;
             border: 1px solid #999;
         }
 
         .progress-fill {
             height: 100%;
-            background: linear-gradient(to right, #3498db, #2ecc71);
+            background: linear-gradient(90deg, #c06c84 0%, #f8b195 100%);
             display: flex;
             align-items: center;
             justify-content: center;
             color: white;
-            font-size: 11px;
+            font-size: 10px;
             font-weight: bold;
-            transition: width 0.3s;
+            transition: width 0.3s ease;
         }
     </style>
 </head>
 <body>
     <h1>Ringgit in Circulation, Over the Years</h1>
-    <button id="toggleView" style="padding: 8px 16px; margin-bottom: 15px; background: #3498db; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">Switch to Bubble View</button>
-    
     <div class="container" id="voronoiContainer">
         <div class="loading">Loading data...</div>
         <svg id="voronoiSvg"></svg>
-    </div>
-    <div class="container" id="bubbleContainer" style="display: none;">
-        <svg id="bubbleSvg"></svg>
     </div>
 
     <script>
         // Constants
         const _2PI = 2 * Math.PI;
+
+        // Function to convert denomination name to display label
+        function getDenominationLabel(denomName) {
+            const lowerName = denomName.toLowerCase();
+            
+            // Map coin denominations
+            if (lowerName === 'coin_1') return '1 Cent';
+            if (lowerName === 'coin_5') return '5 Cent';
+            if (lowerName === 'coin_10') return '10 Cent';
+            if (lowerName === 'coin_20') return '20 Cent';
+            if (lowerName === 'coin_50') return '50 Cent';
+            if (lowerName === 'coin_rm1') return '1 Ringgit';
+            if (lowerName === 'coin_rm5') return '5 Ringgit';
+            if (lowerName === 'coin_others') return 'Other Coins';
+            
+            // Map note denominations
+            if (lowerName === 'note_1') return '1 Ringgit';
+            if (lowerName === 'note_2') return '2 Ringgit';
+            if (lowerName === 'note_5') return '5 Ringgit';
+            if (lowerName === 'note_10') return '10 Ringgit';
+            if (lowerName === 'note_20') return '20 Ringgit';
+            if (lowerName === 'note_50') return '50 Ringgit';
+            if (lowerName === 'note_100') return '100 Ringgit';
+            if (lowerName === 'note_500') return '500 Ringgit';
+            if (lowerName === 'note_1000') return '1000 Ringgit';
+            if (lowerName === 'note_others') return 'Other Notes';
+            
+            // Fallback to original name
+            return denomName;
+        }
+
+        // Function to calculate tooltip position keeping it within viewport
+        function getTooltipPosition(mouseX, mouseY, tooltipWidth, tooltipHeight) {
+            const offsetX = 10;
+            const offsetY = 10;
+            const padding = 5;
+            let left = mouseX + offsetX;
+            let top = mouseY + offsetY;
+            
+            // Check right boundary
+            if (left + tooltipWidth + padding > window.innerWidth) {
+                left = window.innerWidth - tooltipWidth - padding;
+            }
+            
+            // Check bottom boundary
+            if (top + tooltipHeight + padding > window.innerHeight) {
+                top = window.innerHeight - tooltipHeight - padding;
+            }
+            
+            // Ensure minimum position
+            left = Math.max(padding, left);
+            top = Math.max(padding, top);
+            
+            return { left, top };
+        }
 
         // Layout configuration - DYNAMIC
         let svgWidth = window.innerWidth;
@@ -267,35 +324,145 @@
             }
         }
         
-        // Helper function to get correct image path for denomination
-        function getNotePath(denom) {
-            if (denom === '2') {
-                return `myr/2-malaysian-ringgit-3rd-series-obverse-1.jpg`;
-            } else if (denom === '500') {
-                return `myr/500-malaysian-ringgit-obverse-1.jpg`;
-            } else if (denom === '1000') {
-                return `myr/1000-malaysian-ringgit-obverse-1.jpg`;
-            } else {
-                return `myr/${denom}-malaysian-ringgit-4th-series-obverse-1.jpg`;
+        // Helper function to reorder polygon points for optimal morphing
+        // Finds the best starting point to minimize morphing distance
+        function optimizePolygonForMorphing(newPolygon, oldPolygon) {
+            if (!oldPolygon || oldPolygon.length === 0) return newPolygon;
+            if (newPolygon.length !== oldPolygon.length) return newPolygon;
+            
+            // Calculate centroid of old polygon
+            const oldCentroid = [
+                oldPolygon.reduce((sum, p) => sum + p[0], 0) / oldPolygon.length,
+                oldPolygon.reduce((sum, p) => sum + p[1], 0) / oldPolygon.length
+            ];
+            
+            // Find the point in the new polygon closest to the old centroid
+            let bestIdx = 0;
+            let bestDist = Infinity;
+            
+            newPolygon.forEach((point, idx) => {
+                const dist = Math.pow(point[0] - oldCentroid[0], 2) + Math.pow(point[1] - oldCentroid[1], 2);
+                if (dist < bestDist) {
+                    bestDist = dist;
+                    bestIdx = idx;
+                }
+            });
+            
+            // Rotate array to start from best index
+            return [...newPolygon.slice(bestIdx), ...newPolygon.slice(0, bestIdx)];
+        }
+        
+        // Helper function to get correct image path for denomination based on year
+        function getNotePath(denom, year) {
+            year = year || new Date().getFullYear();
+            
+            const imageMap = {
+                '1': [
+                    { years: [1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010], file: '1-malaysian-ringgit-3rd-series-obverse-1-1998-2000.jpg' },
+                    { years: [2011, 2012, 2013, 2014, 2015, 2016,2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025], file: '1-malaysian-ringgit-4th-series-obverse-1-2011-2025.jpg' }
+                ],
+                '2': [
+                    { years: [1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025], file: '2-malaysian-ringgit-3rd-series-obverse-1-1996-1999.jpg' }
+                ],
+                '5': [
+                    { years: [1999, 2000, 2001, 2002, 2003], file: '5-malaysian-ringgit-3rd-series-obverse-5-1999-2001.jpg' },
+                    { years: [2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011], file: '5-malaysian-ringgit-3rd-series-obverse-5-2004.jpg' },
+                    { years: [2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025], file: '5-malaysian-ringgit-4th-series-obverse-5-2012-2025.jpg' }
+                ],
+                '10': [
+                    { years: [1997, 1998, 1999, 2000, 2001, 2002, 2003], file: '10-malaysian-ringgit-3rd-series-obverse-10-1997-2001.jpg' },
+                    { years: [2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011], file: '10-malaysian-ringgit-3rd-series-obverse-10-2004-2011.jpg' },
+                    { years: [2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025], file: '10-malaysian-ringgit-4th-series-obverse-10-2012-2024.jpg' }
+                ],
+                '20': [
+                    { years: [1989, 1990, 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010], file: '20-malaysian-ringgit-2nd-series-obverse-20-1989.jpg' },
+                    { years: [2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025], file: '20-malaysian-ringgit-4th-series-obverse-20-2011-2025.jpg' }
+                ],
+                '50': [
+                    { years: [1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006], file: '50-malaysian-ringgit-3rd-series-obverse-50-1998-2001.jpg' },
+                    { years: [2007, 2008], file: '50-malaysian-ringgit-4th-series-obverse-50-2007-2008-50th-Anniversary.jpg' },
+                    { years: [2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025], file: '50-malaysian-ringgit-4th-series-obverse-50-2009-2024.jpg' }
+                ],
+                '100': [
+                    { years: [1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011], file: '100-malaysian-ringgit-3rd-series-obverse-100-1998-2001.jpg' },
+                    { years: [2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025], file: '100-malaysian-ringgit-4th-series-obverse-100-2012-2024.jpg' }
+                ],
+                '500': [
+                    { years: [2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025], file: '500-malaysian-ringgit-obverse-1.jpg' }
+                ],
+                '1000': [
+                    { years: [2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025], file: '1000-malaysian-ringgit-obverse-1.jpg' }
+                ]
+            };
+            
+            const variants = imageMap[denom];
+            if (variants) {
+                for (let variant of variants) {
+                    if (variant.years.includes(year)) {
+                        return `myr/${variant.file}`;
+                    }
+                }
+                // Fallback to first available
+                return `myr/${variants[0].file}`;
             }
+            
+            return `myr/${denom}-malaysian-ringgit-4th-series-obverse-1.jpg`;
         }
 
-        function getNotePaths(denom) {
-            let obverse, reverse;
-            if (denom === '2') {
-                obverse = `myr/2-malaysian-ringgit-3rd-series-obverse-1.jpg`;
-                reverse = `myr/2-malaysian-ringgit-3rd-series-reverse-1.jpg`;
-            } else if (denom === '500') {
-                obverse = `myr/500-malaysian-ringgit-obverse-1.jpg`;
-                reverse = `myr/500-malaysian-ringgit-reverse-1.jpg`;
-            } else if (denom === '1000') {
-                obverse = `myr/1000-malaysian-ringgit-obverse-1.jpg`;
-                reverse = `myr/1000-malaysian-ringgit-reverse-1.jpg`;
-            } else {
-                obverse = `myr/${denom}-malaysian-ringgit-4th-series-obverse-1.jpg`;
-                reverse = `myr/${denom}-malaysian-ringgit-4th-series-reverse-1.jpg`;
+        function getNotePaths(denom, year) {
+            year = year || new Date().getFullYear();
+            
+            const imageMap = {
+                '1': [
+                    { years: [1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010], obverse: '1-malaysian-ringgit-3rd-series-obverse-1-1998-2000.jpg', reverse: '1-malaysian-ringgit-3rd-series-reverse-1-1998-2000.jpg' },
+                    { years: [2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025], obverse: '1-malaysian-ringgit-4th-series-obverse-1-2011-2025.jpg', reverse: '1-malaysian-ringgit-4th-series-reverse-1-2011-2025.jpg' }
+                ],
+                '2': [
+                    { years: [1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025], obverse: '2-malaysian-ringgit-3rd-series-obverse-1-1996-1999.jpg', reverse: '2-malaysian-ringgit-3rd-series-reverse-1-1996-1999.jpg' }
+                ],
+                '5': [
+                    { years: [1999, 2000, 2001, 2002, 2003], obverse: '5-malaysian-ringgit-3rd-series-obverse-5-1999-2001.jpg', reverse: '5-malaysian-ringgit-3rd-series-reverse-5-1999-2001.jpg' },
+                    { years: [2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011], obverse: '5-malaysian-ringgit-3rd-series-obverse-5-2004.jpg', reverse: '5-malaysian-ringgit-3rd-series-reverse-5-2004.jpg' },
+                    { years: [2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025], obverse: '5-malaysian-ringgit-4th-series-obverse-5-2012-2025.jpg', reverse: '5-malaysian-ringgit-4th-series-reverse-5-2012-2025.jpg' }
+                ],
+                '10': [
+                    { years: [1997, 1998, 1999, 2000, 2001, 2002, 2003], obverse: '10-malaysian-ringgit-3rd-series-obverse-10-1997-2001.jpg', reverse: '10-malaysian-ringgit-3rd-series-reverse-10-1997-2001.jpg' },
+                    { years: [2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011], obverse: '10-malaysian-ringgit-3rd-series-obverse-10-2004-2011.jpg', reverse: '10-malaysian-ringgit-3rd-series-reverse-10-2004-2011.jpg' },
+                    { years: [2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025], obverse: '10-malaysian-ringgit-4th-series-obverse-10-2012-2024.jpg', reverse: '10-malaysian-ringgit-4th-series-reverse-10-2012-2024.jpg' }
+                ],
+                '20': [
+                    { years: [1989, 1990, 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010], obverse: '20-malaysian-ringgit-2nd-series-obverse-20-1989.jpg', reverse: '20-malaysian-ringgit-2nd-series-reverse-20-1989.jpg' },
+                    { years: [2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025], obverse: '20-malaysian-ringgit-4th-series-obverse-20-2011-2025.jpg', reverse: '20-malaysian-ringgit-4th-series-reverse-20-2011-2025.jpg' }
+                ],
+                '50': [
+                    { years: [1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006], obverse: '50-malaysian-ringgit-3rd-series-obverse-50-1998-2001.jpg', reverse: '50-malaysian-ringgit-3rd-series-reverse-50-1998-2001.jpg' },
+                    { years: [2007, 2008], obverse: '50-malaysian-ringgit-4th-series-obverse-50-2007-2008-50th-Anniversary.jpg', reverse: '50-malaysian-ringgit-4th-series-reverse-50-2007-2008-50th-Anniversary.jpg' },
+                    { years: [2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025], obverse: '50-malaysian-ringgit-4th-series-obverse-50-2009-2024.jpg', reverse: '50-malaysian-ringgit-4th-series-reverse-50-2009-2024.jpg' }
+                ],
+                '100': [
+                    { years: [1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011], obverse: '100-malaysian-ringgit-3rd-series-obverse-100-1998-2001.jpg', reverse: '100-malaysian-ringgit-3rd-series-reverse-100-1998-2001.jpg' },
+                    { years: [2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025], obverse: '100-malaysian-ringgit-4th-series-obverse-100-2012-2024.jpg', reverse: '100-malaysian-ringgit-4th-series-reverse-100-2012-2024.jpg' }
+                ],
+                '500': [
+                    { years: [2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025], obverse: '500-malaysian-ringgit-obverse-1.jpg', reverse: '500-malaysian-ringgit-reverse-1.jpg' }
+                ],
+                '1000': [
+                    { years: [2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025], obverse: '1000-malaysian-ringgit-obverse-1.jpg', reverse: '1000-malaysian-ringgit-reverse-1.jpg' }
+                ]
+            };
+            
+            const variants = imageMap[denom];
+            if (variants) {
+                for (let variant of variants) {
+                    if (variant.years.includes(year)) {
+                        return { obverse: `myr/${variant.obverse}`, reverse: `myr/${variant.reverse}` };
+                    }
+                }
+                // Fallback to first available
+                return { obverse: `myr/${variants[0].obverse}`, reverse: `myr/${variants[0].reverse}` };
             }
-            return { obverse, reverse };
+            
+            return { obverse: `myr/${denom}-malaysian-ringgit-4th-series-obverse-1.jpg`, reverse: `myr/${denom}-malaysian-ringgit-4th-series-reverse-1.jpg` };
         }
 
         // Voronoi treemap configuration
@@ -441,11 +608,13 @@
             // Return latest January date's data for initial load
             const lastDate = sortedYearlyDates[sortedYearlyDates.length - 1];
             
-            const children = Object.entries(dataByDate[lastDate] || {}).map(([name, value]) => ({
-                name: name,
-                weight: value,
-                color: colorScale(name)
-            }));
+            const children = Object.entries(dataByDate[lastDate] || {})
+                .sort((a, b) => a[0].localeCompare(b[0]))  // Alphabetical order for consistency
+                .map(([name, value]) => ({
+                    name: name,
+                    weight: value,
+                    color: colorScale(name)
+                }));
             
             return {
                 name: 'Currency',
@@ -464,18 +633,21 @@
             
             // Update stats text directly using the global reference
             try {
-                if (window.statsValue) {
-                    window.statsValue.text(displayValue);
+                if (window.statsValueTextPath) {
+                    window.statsValueTextPath.text(displayValue);
                 }
             } catch (e) {
                 console.error('Error updating stats:', e);
             }
             
+            // Reset random seed for consistent Voronoi layout
+            randomSeed = 9;
+            
             hierarchy = d3.hierarchy(rootData).sum(d => d.weight);
             voronoiTreemap.clip(circlingPolygon)(hierarchy);
             
-            drawTreemap(hierarchy);
-            drawLineChart();
+            const year = parseInt(window.allDates[window.allDates.length - 1].split('-')[0]);
+            drawTreemap(hierarchy, year);
             document.querySelector('.loading').remove();
         }
 
@@ -508,17 +680,36 @@
                 .classed('drawingArea', true)
                 .attr('transform', `translate(${margin.left},${margin.top})`);
             
+            // Set initial zoom to 1.3x centered on the screen
+            const initialZoomTransform = d3.zoomIdentity
+                .translate(svgWidth / 2, svgHeight / 2)
+                .scale(1.3)
+                .translate(-svgWidth / 2, -svgHeight / 2)
+                .translate(margin.left, margin.top);
+            
             // Add zoom behavior - but NOT on controls area
+            let isResettingZoom = false;
             const zoom = d3.zoom()
+                .scaleExtent([1.3, 8])  // Min zoom 1x, Max zoom 8x
                 .on('zoom', (event) => {
                     // Don't zoom if click is on controls
                     if (event.sourceEvent && event.sourceEvent.target.closest('.controls-fixed')) {
                         return;
                     }
-                    drawingArea.attr('transform', event.transform);
+                    
+                    // If zoomed out to minimum, reset to initial view (but prevent infinite loop)
+                    if (event.transform.k <= 1.3 && !isResettingZoom) {
+                        isResettingZoom = true;
+                        svg.call(zoom.transform, initialZoomTransform);
+                        isResettingZoom = false;
+                    } else {
+                        drawingArea.attr('transform', event.transform);
+                    }
                 });
             
             svg.call(zoom);
+            
+            svg.call(zoom.transform, initialZoomTransform);
             
             treemapContainer = drawingArea.append('g')
                 .classed('treemap-container', true)
@@ -529,230 +720,227 @@
                 .attr('transform', `translate(${-treemapRadius},${-treemapRadius})`)
                 .attr('d', `M${circlingPolygon.join(',')}Z`);
             
-            // Create fixed title group (not affected by zoom)
-            const titleGroup = svg.append('g')
-                .classed('title-fixed', true)
-                .attr('transform', 'translate(0,0)');
+            // Create title arc as part of the drawing area (moves with viz)
+            // Add defs for text path in main SVG
+            if (!svg.select('defs').size()) {
+                svg.append('defs');
+            }
             
-            titleGroup.append('text')
-                .attr('x', 20)
-                .attr('y', 30)
-                .attr('text-anchor', 'start')
+            // Create circular arc path for title (top of circle with 20px offset)
+            // Arc is relative to treemapCenter
+            const titleRadius = treemapRadius + 20;
+            const rotationOffset = -Math.PI * 20 / 180;  // clockwise rotation
+            const arcStartAngle = -Math.PI * 120 / 180 + rotationOffset;
+            const arcEndAngle = Math.PI * 40 / 180 + rotationOffset;
+            
+            const arcStart = [
+                titleRadius * Math.cos(arcStartAngle),
+                titleRadius * Math.sin(arcStartAngle)
+            ];
+            const arcEnd = [
+                titleRadius * Math.cos(arcEndAngle),
+                titleRadius * Math.sin(arcEndAngle)
+            ];
+            
+            const largeArcFlag = 0;
+            const sweepFlag = 1;
+            
+            const pathData = `M${arcStart[0]},${arcStart[1]} A${titleRadius},${titleRadius} 0 ${largeArcFlag} ${sweepFlag} ${arcEnd[0]},${arcEnd[1]}`;
+            
+            svg.select('defs').append('path')
+                .attr('id', 'titleArc')
+                .attr('d', pathData)
+                .style('fill', 'none');
+            
+            // Create text that follows the arc - add to treemapContainer so it moves with viz
+            const titleText = treemapContainer.append('text')
                 .style('font-size', '24px')
-                .style('fill', '#c41c3b')
+                .style('fill', 'url(#gradientText)')
                 .style('font-weight', '700')
                 .style('font-family', 'Gotham, "Helvetica Neue", sans-serif')
                 .style('pointer-events', 'none')
-                .text('Ringgit in Circulation, Over the Years');
+                .style('letter-spacing', '2px');
             
-            // Create fixed button group (not affected by zoom)
-            const buttonGroup = svg.append('g')
-                .classed('button-fixed', true)
-                .attr('transform', `translate(${svgWidth / 2 - 60},45)`);
-            
-            const button = buttonGroup.append('rect')
-                .attr('width', 120)
-                .attr('height', 30)
-                .attr('rx', 4)
-                .style('fill', '#3498db')
-                .style('cursor', 'pointer')
-                .style('pointer-events', 'auto');
-            
-            const buttonText = buttonGroup.append('text')
-                .attr('x', 60)
-                .attr('y', 20)
+            const titleTextPath = titleText.append('textPath')
+                .attr('href', '#titleArc')
+                .attr('startOffset', '50%')
                 .attr('text-anchor', 'middle')
-                .style('fill', 'white')
-                .style('font-size', '14px')
-                .style('font-weight', '500')
+                .text('2025 - Ringgit in Circulation, Over the Years');
+            
+            // Store reference for updating year during timeline scrubbing
+            window.titleTextPath = titleTextPath;
+            
+            // Create counterclockwise arc for stats (same path as title but reversed direction)
+            const statsRadius = treemapRadius + 25;
+            const statsRotationOffset = -Math.PI * 150 / 180;  // Same rotation as title
+            const statsArcStartAngle = Math.PI * 40 / 180 + statsRotationOffset;  // Reversed: end becomes start
+            const statsArcEndAngle = -Math.PI * 120 / 180 + statsRotationOffset;  // Reversed: start becomes end
+            
+            const statsArcStart = [
+                statsRadius * Math.cos(statsArcStartAngle),
+                statsRadius * Math.sin(statsArcStartAngle)
+            ];
+            const statsArcEnd = [
+                statsRadius * Math.cos(statsArcEndAngle),
+                statsRadius * Math.sin(statsArcEndAngle)
+            ];
+            
+            const statsLargeArcFlag = 0;
+            const statsSweepFlag = 0;  // 0 for counterclockwise
+            
+            const statsPathData = `M${statsArcStart[0]},${statsArcStart[1]} A${statsRadius},${statsRadius} 0 ${statsLargeArcFlag} ${statsSweepFlag} ${statsArcEnd[0]},${statsArcEnd[1]}`;
+            
+            svg.select('defs').append('path')
+                .attr('id', 'statsArc')
+                .attr('d', statsPathData)
+                .style('fill', 'none');
+            
+            // Create text that follows the stats arc (counterclockwise at bottom)
+            const statsText = treemapContainer.append('text')
+                .style('font-size', '10px')
+                .style('fill', '#333')
+                .style('font-weight', '700')
+                .style('font-family', 'Gotham, "Helvetica Neue", sans-serif')
                 .style('pointer-events', 'none')
-                .text('Switch to Bubble View');
+                .style('letter-spacing', '1.5px')
+                .style('z-index', '2001');
             
-            // Update button reference
-            window.svgButton = { button, buttonText };
-            
-            button.on('click', handleToggleView);
-            
-            // Create stats panel at top right - LARGE AND VISIBLE
-            const statsGroup = svg.append('g')
-                .classed('stats-fixed', true)
-                .attr('transform', `translate(${svgWidth - 220},10)`)
-                .style('pointer-events', 'auto');
-            
-            // Stats background - larger, more visible
-            statsGroup.append('rect')
-                .attr('width', 200)
-                .attr('height', 100)
-                .attr('rx', 8)
-                .style('fill', '#fff')
-                .style('stroke', '#000')
-                .style('stroke-width', '2')
-                .style('opacity', 1)
-                .style('z-index', 2000);
-            
-            // Stats title
-            statsGroup.append('text')
-                .attr('x', 100)
-                .attr('y', 25)
+            const statsTextPath = statsText.append('textPath')
+                .attr('href', '#statsArc')
+                .attr('startOffset', '50%')
                 .attr('text-anchor', 'middle')
-                .style('font-size', '12px')
-                .style('font-weight', 'bold')
-                .style('fill', '#000')
-                .style('z-index', 2001)
-                .text('Total in Circulation');
+                .text('TOTAL IN CIRCULATION');
             
-            // Stats value - LARGE AND RED
-            const statsValue = statsGroup.append('text')
-                .attr('x', 100)
-                .attr('y', 70)
-                .attr('text-anchor', 'middle')
-                .style('font-size', '32px')
-                .style('font-weight', 'bold')
-                .style('fill', '#c41c3b')
-                .style('z-index', 2001)
+            // Create stats value - gradient colored on arc
+            const statsValueText = treemapContainer.append('text')
+                .style('font-size', '20px')
+                .style('fill', 'url(#gradientText)')
+                .style('font-weight', '700')
+                .style('font-family', 'Gotham, "Helvetica Neue", sans-serif')
+                .style('pointer-events', 'none')
+                .style('z-index', '2001');
+            
+            const statsValueTextPath = statsValueText.append('textPath')
+                .attr('href', '#statsArc')
+                .attr('startOffset', '63%')
+                .attr('text-anchor', 'start')
                 .text('RM 0.00B');
             
-            // Store stats reference for later updates
-            window.statsValue = statsValue;
+            // Store stats references for later updates
+            window.statsTextPath = statsTextPath;
+            window.statsValueTextPath = statsValueTextPath;
+            
+            // Add gradient definition for text
+            svg.select('defs').append('linearGradient')
+                .attr('id', 'gradientText')
+                .attr('x1', '0%')
+                .attr('x2', '100%')
+                .attr('y1', '0%')
+                .attr('y2', '0%')
+                .append('stop')
+                .attr('offset', '0%')
+                .attr('stop-color', '#c06c84');
+            
+            svg.select('#gradientText').append('stop')
+                .attr('offset', '100%')
+                .attr('stop-color', '#f8b195');
+            
+            // Add gradient definition for timeline
+            svg.select('defs').append('linearGradient')
+                .attr('id', 'timelineGradient')
+                .attr('x1', '0%')
+                .attr('x2', '100%')
+                .attr('y1', '0%')
+                .attr('y2', '0%')
+                .append('stop')
+                .attr('offset', '0%')
+                .attr('stop-color', '#c06c84');
+            
+            svg.select('#timelineGradient').append('stop')
+                .attr('offset', '100%')
+                .attr('stop-color', '#f8b195');
             
             // Create line chart below stats panel
-            const chartWidth = 200;
-            const chartHeight = 80;
-            const chartMargin = { top: 5, right: 10, bottom: 15, left: 30 };
-            
-            const lineChartGroup = svg.append('g')
-                .classed('linechart-fixed', true)
-                .attr('transform', `translate(${svgWidth - 220},120)`)
-                .style('pointer-events', 'auto');
-            
-            // Chart background
-            lineChartGroup.append('rect')
-                .attr('width', 200)
-                .attr('height', chartHeight + 20)
-                .attr('rx', 8)
-                .style('fill', '#fff')
-                .style('stroke', '#000')
-                .style('stroke-width', '2')
-                .style('opacity', 1)
-                .style('z-index', 2000);
-            
-            // Chart title
-            lineChartGroup.append('text')
-                .attr('x', 100)
-                .attr('y', 18)
-                .attr('text-anchor', 'middle')
-                .style('font-size', '10px')
-                .style('font-weight', 'bold')
-                .style('fill', '#000')
-                .style('z-index', 2001)
-                .text('Monthly Total');
-            
-            // Create SVG for the actual chart
-            const chartSvg = lineChartGroup.append('svg')
-                .attr('width', chartWidth)
-                .attr('height', chartHeight)
-                .attr('x', 0)
-                .attr('y', 20)
-                .style('overflow', 'visible');
-            
-            const chartArea = chartSvg.append('g')
-                .attr('transform', `translate(${chartMargin.left},${chartMargin.top})`);
-            
-            // Store references for later drawing
-            window.lineChart = {
-                group: lineChartGroup,
-                svg: chartSvg,
-                chartArea: chartArea,
-                width: chartWidth - chartMargin.left - chartMargin.right,
-                height: chartHeight - chartMargin.top - chartMargin.bottom
-            };
-            
+
             // Create video-style controls at bottom center
             const controlsHeight = 70;
             const controlWidth = Math.min(300, svgWidth * 0.4);
             const controlsGroup = svg.append('g')
                 .classed('controls-fixed', true)
-                .attr('transform', `translate(${svgWidth / 2 - controlWidth / 2},${svgHeight - controlsHeight})`);
+                .attr('transform', `translate(${svgWidth / 2 - controlWidth / 2},${svgHeight - controlsHeight + 7})`);
             
-            // Controls background
-            controlsGroup.append('rect')
-                .attr('width', controlWidth)
-                .attr('height', controlsHeight)
-                .style('fill', 'rgba(0,0,0,0.7)')
-                .attr('rx', 8);
+            // Controls background - removed for transparent look
+            // controlsGroup.append('rect')
+            //     .attr('width', controlWidth)
+            //     .attr('height', controlsHeight)
+            //     .style('fill', 'rgba(255, 255, 255, 0.95)')
+            //     .style('stroke', '#999')
+            //     .style('stroke-width', '2')
+            //     .attr('rx', 4)
             
-            // Play/Pause toggle button
+            // Play/Pause toggle button - transparent background, clickable, centered vertically with progress bar
             const playPauseButton = controlsGroup.append('rect')
                 .attr('x', 15)
                 .attr('y', 12)
                 .attr('width', 24)
                 .attr('height', 24)
                 .attr('rx', 2)
-                .style('fill', '#3498db')
+                .style('fill', 'rgba(0, 0, 0, 0)')
                 .style('cursor', 'pointer')
-                .style('stroke', '#2980b9')
-                .style('stroke-width', '1');
+                .style('stroke', 'none')
+                .style('stroke-width', '0')
+                .style('pointer-events', 'auto');
             
             // Play triangle icon (will change to pause bars when playing)
             const playIcon = controlsGroup.append('polygon')
-                .attr('points', '22,15 22,33 32,24')
-                .style('fill', 'white')
+                .attr('points', '22,16 22,34 32,25')
+                .style('fill', 'url(#timelineGradient)')
                 .style('pointer-events', 'none');
             
             // Pause icon (bars - hidden initially)
             const pauseBar1 = controlsGroup.append('rect')
                 .attr('x', 20)
-                .attr('y', 15)
+                .attr('y', 16)
                 .attr('width', 3)
                 .attr('height', 18)
-                .style('fill', 'white')
+                .style('fill', 'url(#timelineGradient)')
                 .style('pointer-events', 'none')
                 .style('display', 'none');
             
             const pauseBar2 = controlsGroup.append('rect')
                 .attr('x', 26)
-                .attr('y', 15)
+                .attr('y', 16)
                 .attr('width', 3)
                 .attr('height', 18)
-                .style('fill', 'white')
+                .style('fill', 'url(#timelineGradient)')
                 .style('pointer-events', 'none')
                 .style('display', 'none');
             
-            // Timeline background
-            const timelineWidth = controlWidth - 55;
+            // Timeline background - shortened by 10%
+            const timelineWidth = (controlWidth - 55) * 0.9;
             controlsGroup.append('rect')
                 .attr('x', 45)
-                .attr('y', 18)
+                .attr('y', 22)
                 .attr('width', timelineWidth)
                 .attr('height', 8)
-                .attr('rx', 4)
-                .style('fill', '#555')
-                .style('cursor', 'pointer');
+                .attr('rx', 2)
+                .style('fill', '#e0e0e0')
+                .style('cursor', 'pointer')
+                .style('border', '1px solid #999');
             
             // Timeline progress fill
             const timelineProgress = controlsGroup.append('rect')
                 .attr('x', 45)
-                .attr('y', 18)
+                .attr('y', 22)
                 .attr('width', 0)
                 .attr('height', 8)
-                .attr('rx', 4)
-                .style('fill', '#3498db');
-            
-            // Year display at bottom of controls
-            const yearDisplay = controlsGroup.append('text')
-                .attr('x', controlWidth / 2)
-                .attr('y', controlsHeight - 12)
-                .attr('text-anchor', 'middle')
-                .style('font-size', '12px')
-                .style('fill', '#fff')
-                .style('font-weight', 'bold')
-                .text('2024');
+                .attr('rx', 2)
+                .style('fill', 'url(#timelineGradient)');
             
             // Store timeline references and animation state
             window.timeline = {
                 group: controlsGroup,
                 progress: timelineProgress,
-                yearText: yearDisplay,
                 width: timelineWidth,
                 isPlaying: false,
                 currentIdx: window.allDates.length - 1,
@@ -772,14 +960,12 @@
                     playIcon.style('display', 'none');
                     pauseBar1.style('display', 'block');
                     pauseBar2.style('display', 'block');
-                    playPauseButton.style('fill', '#e74c3c').style('stroke', '#c0392b');
                     animateTimeline();
                 } else {
                     // Show play icon, hide pause icon
                     playIcon.style('display', 'block');
                     pauseBar1.style('display', 'none');
                     pauseBar2.style('display', 'none');
-                    playPauseButton.style('fill', '#3498db').style('stroke', '#2980b9');
                 }
             });
             
@@ -794,7 +980,6 @@
                     playIcon.style('display', 'block');
                     pauseBar1.style('display', 'none');
                     pauseBar2.style('display', 'none');
-                    playPauseButton.style('fill', '#3498db').style('stroke', '#2980b9');
                 }
             });
             
@@ -809,7 +994,6 @@
                     playIcon.style('display', 'block');
                     pauseBar1.style('display', 'none');
                     pauseBar2.style('display', 'none');
-                    playPauseButton.style('fill', '#3498db').style('stroke', '#2980b9');
                     const x = clickX - 45;
                     const ratio = Math.max(0, Math.min(1, x / timelineWidth));
                     const dateIdx = Math.round(ratio * (window.allDates.length - 1));
@@ -855,129 +1039,6 @@
 
 
 
-        function drawLineChart() {
-            if (!window.lineChart || !window.monthlyDenominations || !window.allMonthlyDates) {
-                return;
-            }
-            
-            const chartArea = window.lineChart.chartArea;
-            const chartWidth = window.lineChart.width;
-            const chartHeight = window.lineChart.height;
-            
-            // Get all denominations in order
-            const denominations = Object.keys(window.monthlyDenominations).sort();
-            
-            // Find max value across all denominations for y-axis scale
-            let maxValue = 0;
-            denominations.forEach(denom => {
-                const values = Object.values(window.monthlyDenominations[denom]);
-                maxValue = Math.max(maxValue, ...values);
-            });
-            
-            // Create scales
-            const xScale = d3.scaleTime()
-                .domain([new Date(window.allMonthlyDates[0]), new Date(window.allMonthlyDates[window.allMonthlyDates.length - 1])])
-                .range([0, chartWidth]);
-            
-            const yScale = d3.scaleLinear()
-                .domain([0, maxValue])
-                .range([chartHeight, 0]);
-            
-            // Create line generator
-            const line = d3.line()
-                .x(d => xScale(new Date(d[0])))
-                .y(d => yScale(d[1]));
-            
-            // Clear existing content
-            chartArea.selectAll('*').remove();
-            
-            // Add subtle grid lines
-            chartArea.append('g')
-                .attr('class', 'y-axis')
-                .call(d3.axisLeft(yScale)
-                    .tickSize(-chartWidth)
-                    .tickFormat('')
-                )
-                .style('stroke', 'none')
-                .selectAll('line')
-                .style('stroke', '#eee')
-                .style('stroke-width', 0.5);
-            
-            // Draw line for each denomination
-            denominations.forEach(denom => {
-                const data = Object.entries(window.monthlyDenominations[denom]);
-                const color = colorScale(denom);
-                
-                chartArea.append('path')
-                    .datum(data)
-                    .attr('d', line)
-                    .style('fill', 'none')
-                    .style('stroke', color)
-                    .style('stroke-width', 1.5)
-                    .style('opacity', 0.7);
-            });
-            
-            // Add x-axis labels (start and end dates)
-            const xAxisGroup = chartArea.append('g')
-                .attr('transform', `translate(0,${chartHeight})`);
-            
-            // Start date label
-            xAxisGroup.append('text')
-                .attr('x', 0)
-                .attr('y', 12)
-                .attr('text-anchor', 'start')
-                .style('font-size', '8px')
-                .style('fill', '#666')
-                .text(d3.timeFormat('%Y')(new Date(window.allMonthlyDates[0])));
-            
-            // End date label
-            xAxisGroup.append('text')
-                .attr('x', chartWidth)
-                .attr('y', 12)
-                .attr('text-anchor', 'end')
-                .style('font-size', '8px')
-                .style('fill', '#666')
-                .text(d3.timeFormat('%Y')(new Date(window.allMonthlyDates[window.allMonthlyDates.length - 1])));
-            
-            // Add y-axis label
-            chartArea.append('text')
-                .attr('x', -chartHeight / 2)
-                .attr('y', -25)
-                .attr('text-anchor', 'middle')
-                .attr('transform', 'rotate(-90)')
-                .style('font-size', '8px')
-                .style('fill', '#666')
-                .text('RM B');
-            
-            // Draw legend inside chart at top-right
-            const legendX = chartWidth - 5;
-            const legendY = 5;
-            const legendItemHeight = 10;
-            
-            denominations.forEach((denom, i) => {
-                const color = colorScale(denom);
-                
-                // Legend line
-                chartArea.append('line')
-                    .attr('x1', legendX - 20)
-                    .attr('y1', legendY + i * legendItemHeight)
-                    .attr('x2', legendX - 12)
-                    .attr('y2', legendY + i * legendItemHeight)
-                    .style('stroke', color)
-                    .style('stroke-width', 2)
-                    .style('opacity', 0.7);
-                
-                // Legend text
-                chartArea.append('text')
-                    .attr('x', legendX - 10)
-                    .attr('y', legendY + i * legendItemHeight + 3)
-                    .attr('text-anchor', 'start')
-                    .style('font-size', '7px')
-                    .style('fill', '#333')
-                    .text(denom);
-            });
-        }
-
         function animateTimeline() {
             if (!window.timeline.isPlaying) return;
             
@@ -1006,25 +1067,32 @@
             window.timeline.progress.attr('width', window.timeline.width * ratio);
             
             // Extract year from date
-            const year = date.split('-')[0];
-            window.timeline.yearText.text(year);
+            const year = parseInt(date.split('-')[0]);
             
-            // Create new hierarchy for this date
-            const children = Object.entries(window.dataByDate[date]).map(([name, value]) => ({
-                name: name,
-                weight: parseFloat(value),
-                color: colorScale(name)
-            }));
+            // Update title with year
+            if (window.titleTextPath) {
+                window.titleTextPath.text(`${year} - Ringgit in Circulation, Over the Years`);
+            }
+            
+            // Create new hierarchy for this date with consistent ordering
+            // Sort by denomination name to ensure same layout every year
+            const children = Object.entries(window.dataByDate[date])
+                .sort((a, b) => a[0].localeCompare(b[0]))  // Alphabetical order for consistency
+                .map(([name, value]) => ({
+                    name: name,
+                    weight: parseFloat(value),
+                    color: colorScale(name)
+                }));
             
             console.log('Date:', date, 'Children:', children, 'Data entry:', window.dataByDate[date]);
             
             // Update stats if it exists (only in treemap view)
-            if (window.statsValue) {
+            if (window.statsValueTextPath) {
                 const totalValue = children.reduce((sum, child) => {
                     return sum + child.weight;
                 }, 0);
                 console.log('Total value for stats:', totalValue, 'Display:', `RM ${(totalValue / 1000).toFixed(2)}B`);
-                window.statsValue.text(`RM ${(totalValue / 1000).toFixed(2)}B`);
+                window.statsValueTextPath.text(`RM ${(totalValue / 1000).toFixed(2)}B`);
             }
             
             const newData = {
@@ -1032,6 +1100,9 @@
                 children: children,
                 color: '#666'
             };
+            
+            // Reset random seed for consistent Voronoi layout across all years
+            randomSeed = 9;
             
             // Recompute Voronoi treemap
             const newHierarchy = d3.hierarchy(newData).sum(d => d.weight);
@@ -1049,11 +1120,33 @@
             const cellGroups = cells.selectAll('.cell')
                 .data(newLeaves, (d) => d.data.name);
             
-            // Animate fill path transitions
+            // Animate fill path transitions with optimized morphing
             cellGroups.select('path')
                 .transition()
                 .duration(transitionDuration)
-                .attr('d', d => `M${d.polygon.join(',')}z`)
+                .attrTween('d', function(d) {
+                    // Get the old polygon from the current element
+                    const oldPathData = d3.select(this).attr('d');
+                    const oldPolygon = d.__oldPolygon || [];
+                    
+                    // Optimize new polygon point order for nearest-path morphing
+                    const optimizedPolygon = optimizePolygonForMorphing(d.polygon, oldPolygon);
+                    
+                    // Store optimized polygon for next transition
+                    d.__oldPolygon = optimizedPolygon;
+                    
+                    // Create path generator
+                    const pathGen = (points) => `M${points.join(',')}z`;
+                    
+                    // Linear interpolator for smooth morphing
+                    return (t) => {
+                        const morphed = oldPolygon.map((oldPt, i) => [
+                            oldPt[0] + (optimizedPolygon[i][0] - oldPt[0]) * t,
+                            oldPt[1] + (optimizedPolygon[i][1] - oldPt[1]) * t
+                        ]);
+                        return pathGen(morphed);
+                    };
+                })
                 .style('fill', d => d.data.color)
                 .style('stroke', 'white')
                 .style('stroke-width', 8)
@@ -1061,22 +1154,35 @@
                 .style('stroke-linecap', 'round');
             
             // Update clipping paths to match morphing cells
-            const defs = treemapContainer.select('defs');
-            newLeaves.forEach((d) => {
-                const clipPathId = `clip-path-${d.data.name}`;
+            // Use main SVG defs (not treemapContainer) since clips must be in root
+            const defs = svg.select('defs');
+            newLeaves.forEach((d, idx) => {
+                const clipPathId = window.clipPathMap[d.data.name] || `clip-${idx}`;
                 let clipPath = defs.select(`#${clipPathId}`);
                 
                 // Create clip path if it doesn't exist
                 if (clipPath.empty()) {
                     clipPath = defs.append('clipPath').attr('id', clipPathId);
                     clipPath.append('path');
+                    window.clipPathMap[d.data.name] = clipPathId;
                 }
                 
-                // Animate the clipping path to match the morphing cell
+                // Animate the clipping path with optimized morphing
                 clipPath.select('path')
                     .transition()
                     .duration(transitionDuration)
-                    .attr('d', `M${d.polygon.join(',')}z`);
+                    .attrTween('d', function() {
+                        const oldPolygon = d.__oldPolygon || [];
+                        const optimizedPolygon = optimizePolygonForMorphing(d.polygon, oldPolygon);
+                        
+                        return (t) => {
+                            const morphed = oldPolygon.map((oldPt, i) => [
+                                oldPt[0] + (optimizedPolygon[i][0] - oldPt[0]) * t,
+                                oldPt[1] + (optimizedPolygon[i][1] - oldPt[1]) * t
+                            ]);
+                            return `M${morphed.join(',')}z`;
+                        };
+                    });
             });
             
             // Update images with smooth transitions (morphing)
@@ -1091,7 +1197,7 @@
                     const denomMatch = d.data.name.match(/\d+/);
                     if (denomMatch) {
                         const denom = denomMatch[0];
-                        const imagePath = getNotePath(denom);
+                        const imagePath = getNotePath(denom, year);
                         
                         const xs = d.polygon.map(p => p[0]);
                         const ys = d.polygon.map(p => p[1]);
@@ -1120,16 +1226,23 @@
                         const newY = minY - offsetY;
                         
                         // Find and update existing image for this denomination
-                        imagesLayer.select(`image[data-denom="${d.data.name}"]`)
+                        const imageElement = imagesLayer.select(`image[data-denom="${d.data.name}"]`);
+                        
+                        // Set non-interpolatable attributes first (outside transition)
+                        imageElement
+                            .attr('xlink:href', imagePath)
+                            .attr('href', imagePath)
+                            .attr('clip-path', `url(#${window.clipPathMap[d.data.name]})`);
+                        
+                        // Then transition the position/size attributes
+                        imageElement
                             .transition()
                             .duration(transitionDuration)
-                            .attr('xlink:href', imagePath)
                             .attr('x', newX)
                             .attr('y', newY)
                             .attr('width', scaledWidth)
                             .attr('height', scaledHeight)
-                            .style('clip-path', `url(#clip-path-${d.data.name})`)
-                            .style('opacity', 1);
+                            .style('pointer-events', 'none');
                     }
                 }
             });
@@ -1162,40 +1275,106 @@
                 if (isNote) {
                     const denomMatch = d.data.name.match(/\d+/);
                     if (denomMatch) {
-                        const paths = getNotePaths(denomMatch[0]);
+                        const paths = getNotePaths(denomMatch[0], year);
                         imageHtml = `
-                            <div style="margin-top: 10px; display: flex; gap: 8px;">
+                            <div style="display: flex; flex-direction: column; align-items: center; gap: 6px; margin-bottom: 12px;">
                                 <div style="text-align: center;">
-                                    <img src="${paths.obverse}" style="width: 120px; height: 80px; border-radius: 4px; object-fit: cover; box-shadow: 0 2px 4px rgba(0,0,0,0.2);" />
-                                    <div style="font-size: 11px; color: #666; margin-top: 4px;">Obverse</div>
+                                    <img src="${paths.obverse}" style="width: 240px; height: auto; object-fit: contain; border: 2px solid #999; box-shadow: 0 2px 4px rgba(0,0,0,0.2);" />
+                                    <div style="font-size: 10px; color: #666; margin-top: 4px;">Obverse</div>
                                 </div>
                                 <div style="text-align: center;">
-                                    <img src="${paths.reverse}" style="width: 120px; height: 80px; border-radius: 4px; object-fit: cover; box-shadow: 0 2px 4px rgba(0,0,0,0.2);" />
-                                    <div style="font-size: 11px; color: #666; margin-top: 4px;">Reverse</div>
+                                    <img src="${paths.reverse}" style="width: 240px; height: auto; object-fit: contain; border: 2px solid #999; box-shadow: 0 2px 4px rgba(0,0,0,0.2);" />
+                                    <div style="font-size: 10px; color: #666; margin-top: 4px;">Reverse</div>
                                 </div>
                             </div>
                         `;
                     }
                 }
                 
+                // Get monthly data for this denomination in this year (all months for that year)
+                let monthlyDataHtml = '';
+                if (window.monthlyDenominations && window.monthlyDenominations[d.data.name] && window.allMonthlyDates) {
+                    const monthlyData = window.monthlyDenominations[d.data.name];
+                    const yearStart = `${year}-`;
+                    const yearMonths = window.allMonthlyDates.filter(date => date.startsWith(yearStart));
+                    
+                    if (yearMonths.length > 0) {
+                        const yearValues = yearMonths
+                            .map(date => monthlyData[date])
+                            .filter(val => val !== undefined);
+                        
+                        if (yearValues.length > 0) {
+                            // Create SVG line chart for monthly trend
+                            const chartWidth = 180;
+                            const chartHeight = 60;
+                            const padding = { top: 8, right: 8, bottom: 15, left: 30 };
+                            
+                            const minVal = Math.min(...yearValues);
+                            const maxVal = Math.max(...yearValues);
+                            const range = maxVal - minVal || maxVal;
+                            
+                            // Calculate x and y positions for line chart
+                            const pointCount = yearValues.length;
+                            const xStep = (chartWidth - padding.left - padding.right) / (pointCount - 1 || 1);
+                            const points = yearValues.map((val, i) => {
+                                const x = padding.left + (i * xStep);
+                                const y = chartHeight - padding.bottom - ((val - minVal) / range) * (chartHeight - padding.top - padding.bottom);
+                                return `${x},${y}`;
+                            }).join(' ');
+                            
+                            monthlyDataHtml = `
+                                <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #ddd; width: 100%; overflow: hidden;">
+                                    <div style="font-size: 10px; font-weight: 700; color: #333; margin-bottom: 4px;">${year} Monthly Trend</div>
+                                    <svg width="100%" height="auto" viewBox="0 0 ${chartWidth} ${chartHeight}" preserveAspectRatio="xMidYMid meet" style="border: 1px solid #ddd; border-radius: 2px; background: #fafafa; max-width: 100%; max-height: 60px; display: block;">
+                                        <!-- Y-axis -->
+                                        <line x1="${padding.left}" y1="${padding.top}" x2="${padding.left}" y2="${chartHeight - padding.bottom}" stroke="#ddd" stroke-width="1"/>
+                                        <!-- X-axis -->
+                                        <line x1="${padding.left}" y1="${chartHeight - padding.bottom}" x2="${chartWidth - padding.right}" y2="${chartHeight - padding.bottom}" stroke="#ddd" stroke-width="1"/>
+                                        <!-- Line chart -->
+                                        <polyline points="${points}" fill="none" stroke="url(#gradientText)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <!-- Y-axis labels -->
+                                        <text x="5" y="${chartHeight - padding.bottom + 3}" font-size="8" fill="#999" text-anchor="end">RM ${minVal.toFixed(0)}</text>
+                                        <text x="5" y="${padding.top + 3}" font-size="8" fill="#999" text-anchor="end">RM ${maxVal.toFixed(0)}</text>
+                                    </svg>
+                                </div>
+                            `;
+                        }
+                    }
+                }
+                
                 tooltip.html(`
-                    <div class="tooltip-title">${d.data.name}</div>
-                    <div class="tooltip-value">Value: RM ${d.value.toFixed(0)}</div>
+                    ${imageHtml}
+                    <div class="tooltip-title">${getDenominationLabel(d.data.name)}</div>
+                    <div class="tooltip-value">Circulating Value: RM ${d.value.toFixed(0)}</div>
                     <div class="progress-bar">
                         <div class="progress-fill" style="width: ${percentage}%">
                             ${percentage.toFixed(1)}%
                         </div>
                     </div>
-                    ${imageHtml}
+                    ${monthlyDataHtml}
                 `)
-                .style('left', (event.pageX + 10) + 'px')
-                .style('top', (event.pageY + 10) + 'px')
                 .style('opacity', 1);
+                
+                // Calculate position after content is rendered
+                setTimeout(() => {
+                    const tooltipNode = tooltip.node();
+                    const tooltipWidth = tooltipNode.offsetWidth;
+                    const tooltipHeight = tooltipNode.offsetHeight;
+                    const pos = getTooltipPosition(event.pageX, event.pageY, tooltipWidth, tooltipHeight);
+                    tooltip.style('left', pos.left + 'px')
+                        .style('top', pos.top + 'px');
+                }, 0);
             })
             .on('mousemove', function(event) {
-                d3.select('.hover-tooltip')
-                    .style('left', (event.pageX + 10) + 'px')
-                    .style('top', (event.pageY + 10) + 'px');
+                const tooltip = d3.select('.hover-tooltip');
+                const tooltipNode = tooltip.node();
+                if (tooltipNode) {
+                    const tooltipWidth = tooltipNode.offsetWidth;
+                    const tooltipHeight = tooltipNode.offsetHeight;
+                    const pos = getTooltipPosition(event.pageX, event.pageY, tooltipWidth, tooltipHeight);
+                    tooltip.style('left', pos.left + 'px')
+                        .style('top', pos.top + 'px');
+                }
             })
             .on('mouseleave', function(event, d) {
                 d3.select('.hover-tooltip').style('opacity', 0);
@@ -1222,20 +1401,30 @@
             // Legend is only created once in initLayout, don't recreate it here
         }
 
-        function drawTreemap(hierarchy) {
+        function drawTreemap(hierarchy, year) {
             const leaves = hierarchy.leaves();
             
-            // Create defs for clipping paths
-            const defs = treemapContainer.append('defs');
+            // Create defs for clipping paths (append to main SVG, not to g element)
+            const defs = svg.append('defs');
             
             // Create clipping paths for each cell using denomination name as ID
-            leaves.forEach((d) => {
-                const clipPathId = `clip-path-${d.data.name}`;
+            leaves.forEach((d, idx) => {
+                const clipPathId = `clip-${idx}`;
                 const clipPath = defs.append('clipPath')
                     .attr('id', clipPathId);
                 
                 clipPath.append('path')
-                    .attr('d', `M${d.polygon.join(',')}z`);
+                    .attr('d', `M${d.polygon.join(',')}z`)
+                    .attr('fill-rule', 'evenodd');
+                
+                // Store the clipPathId in the data for reference
+                d.clipPathId = clipPathId;
+            });
+            
+            // Also store mapping by denomination name for updateVoronoiForYear
+            window.clipPathMap = {};
+            leaves.forEach((d, idx) => {
+                window.clipPathMap[d.data.name] = `clip-${idx}`;
             });
             
             // Draw cells (Voronoi regions)
@@ -1263,14 +1452,13 @@
             // Add images for notes to the images layer
             leaves.forEach((d) => {
                 const isNote = d.data.name.toLowerCase().includes('note');
-                const clipPathId = `clip-path-${d.data.name}`;
                 
                 if (isNote) {
                     // Extract denomination number
                     const denomMatch = d.data.name.match(/\d+/);
                     if (denomMatch) {
                         const denom = denomMatch[0];
-                        const imagePath = getNotePath(denom);
+                        const imagePath = getNotePath(denom, year);
                         
                         // Calculate bounds of polygon
                         const xs = d.polygon.map(p => p[0]);
@@ -1304,12 +1492,14 @@
                         imagesLayer.append('image')
                             .attr('data-denom', d.data.name)
                             .attr('xlink:href', imagePath)
-                            .attr('x', minX - offsetX * 0.7)
+                            .attr('href', imagePath)
+                            .attr('x', minX - offsetX * 0.9)
                             .attr('y', minY - offsetY)
                             .attr('width', scaledWidth)
                             .attr('height', scaledHeight)
-                            .style('clip-path', `url(#${clipPathId})`)
-                            .style('opacity', 1);
+                            .attr('clip-path', `url(#${d.clipPathId})`)
+                            .attr('preserveAspectRatio', 'xMidYMid slice')
+                            .style('pointer-events', 'none');
                     }
                 }
             });
@@ -1378,23 +1568,112 @@
                             .classed('hover-tooltip', true);
                     }
                     
+                    // Check if it's a note and add image preview
+                    const isNote = d.data.name.toLowerCase().includes('note');
+                    let imageHtml = '';
+                    if (isNote) {
+                        const denomMatch = d.data.name.match(/\d+/);
+                        if (denomMatch) {
+                            const paths = getNotePaths(denomMatch[0], year);
+                            imageHtml = `
+                                <div style="display: flex; flex-direction: column; align-items: center; gap: 6px; margin-bottom: 12px;">
+                                    <div style="text-align: center;">
+                                        <img src="${paths.obverse}" style="width: 240px; height: auto; object-fit: contain; border: 2px solid #999; box-shadow: 0 2px 4px rgba(0,0,0,0.2);" />
+                                        <div style="font-size: 10px; color: #666; margin-top: 4px;">Obverse</div>
+                                    </div>
+                                    <div style="text-align: center;">
+                                        <img src="${paths.reverse}" style="width: 240px; height: auto; object-fit: contain; border: 2px solid #999; box-shadow: 0 2px 4px rgba(0,0,0,0.2);" />
+                                        <div style="font-size: 10px; color: #666; margin-top: 4px;">Reverse</div>
+                                    </div>
+                                </div>
+                            `;
+                        }
+                    }
+                    
+                    // Get monthly data for this denomination in this year (all months for that year)
+                    let monthlyDataHtml = '';
+                    if (window.monthlyDenominations && window.monthlyDenominations[d.data.name] && window.allMonthlyDates) {
+                        const monthlyData = window.monthlyDenominations[d.data.name];
+                        const yearStart = `${year}-`;
+                        const yearMonths = window.allMonthlyDates.filter(date => date.startsWith(yearStart));
+                        
+                        if (yearMonths.length > 0) {
+                            const yearValues = yearMonths
+                                .map(date => monthlyData[date])
+                                .filter(val => val !== undefined);
+                            
+                            if (yearValues.length > 0) {
+                                // Create SVG line chart for monthly trend
+                                const chartWidth = 180;
+                                const chartHeight = 60;
+                                const padding = { top: 8, right: 8, bottom: 15, left: 30 };
+                                
+                                const minVal = Math.min(...yearValues);
+                                const maxVal = Math.max(...yearValues);
+                                const range = maxVal - minVal || maxVal;
+                                
+                                // Calculate x and y positions for line chart
+                                const pointCount = yearValues.length;
+                                const xStep = (chartWidth - padding.left - padding.right) / (pointCount - 1 || 1);
+                                const points = yearValues.map((val, i) => {
+                                    const x = padding.left + (i * xStep);
+                                    const y = chartHeight - padding.bottom - ((val - minVal) / range) * (chartHeight - padding.top - padding.bottom);
+                                    return `${x},${y}`;
+                                }).join(' ');
+                                
+                                monthlyDataHtml = `
+                                    <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #ddd; width: 100%; overflow: hidden;">
+                                        <div style="font-size: 10px; font-weight: 700; color: #333; margin-bottom: 4px;">${year} Monthly Trend</div>
+                                        <svg width="100%" height="auto" viewBox="0 0 ${chartWidth} ${chartHeight}" preserveAspectRatio="xMidYMid meet" style="border: 1px solid #ddd; border-radius: 2px; background: #fafafa; max-width: 100%; max-height: 60px; display: block;">
+                                            <!-- Y-axis -->
+                                            <line x1="${padding.left}" y1="${padding.top}" x2="${padding.left}" y2="${chartHeight - padding.bottom}" stroke="#ddd" stroke-width="1"/>
+                                            <!-- X-axis -->
+                                            <line x1="${padding.left}" y1="${chartHeight - padding.bottom}" x2="${chartWidth - padding.right}" y2="${chartHeight - padding.bottom}" stroke="#ddd" stroke-width="1"/>
+                                            <!-- Line chart -->
+                                            <polyline points="${points}" fill="none" stroke="url(#gradientText)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                            <!-- Y-axis labels -->
+                                            <text x="5" y="${chartHeight - padding.bottom + 3}" font-size="8" fill="#999" text-anchor="end">RM ${minVal.toFixed(0)}</text>
+                                            <text x="5" y="${padding.top + 3}" font-size="8" fill="#999" text-anchor="end">RM ${maxVal.toFixed(0)}</text>
+                                        </svg>
+                                    </div>
+                                `;
+                            }
+                        }
+                    }
+                    
                     tooltip.html(`
-                        <div class="tooltip-title">${d.data.name}</div>
-                        <div class="tooltip-value">Value: RM ${d.value.toFixed(0)}</div>
+                        ${imageHtml}
+                        <div class="tooltip-title">${getDenominationLabel(d.data.name)}</div>
+                        <div class="tooltip-value">Circulating Value: RM ${d.value.toFixed(0)}</div>
                         <div class="progress-bar">
                             <div class="progress-fill" style="width: ${percentage}%">
                                 ${percentage.toFixed(1)}%
                             </div>
                         </div>
+                        ${monthlyDataHtml}
                     `)
-                    .style('left', (event.pageX + 10) + 'px')
-                    .style('top', (event.pageY + 10) + 'px')
                     .style('opacity', 1);
+                    
+                    // Calculate position after content is rendered
+                    setTimeout(() => {
+                        const tooltipNode = tooltip.node();
+                        const tooltipWidth = tooltipNode.offsetWidth;
+                        const tooltipHeight = tooltipNode.offsetHeight;
+                        const pos = getTooltipPosition(event.pageX, event.pageY, tooltipWidth, tooltipHeight);
+                        tooltip.style('left', pos.left + 'px')
+                            .style('top', pos.top + 'px');
+                    }, 0);
                 })
                 .on('mousemove', function(event) {
-                    d3.select('.hover-tooltip')
-                        .style('left', (event.pageX + 10) + 'px')
-                        .style('top', (event.pageY + 10) + 'px');
+                    const tooltip = d3.select('.hover-tooltip');
+                    const tooltipNode = tooltip.node();
+                    if (tooltipNode) {
+                        const tooltipWidth = tooltipNode.offsetWidth;
+                        const tooltipHeight = tooltipNode.offsetHeight;
+                        const pos = getTooltipPosition(event.pageX, event.pageY, tooltipWidth, tooltipHeight);
+                        tooltip.style('left', pos.left + 'px')
+                            .style('top', pos.top + 'px');
+                    }
                 })
                 .on('mouseleave', function(event, d) {
                     d3.select('.hover-tooltip').style('opacity', 0);
@@ -1405,243 +1684,7 @@
         }
 
         // Toggle button functionality - now handled in initLayout
-        // (was: document.getElementById('toggleView').addEventListener('click', ...))
-
-        function handleToggleView() {
-            const voronoiContainer = document.getElementById('voronoiContainer');
-            const bubbleContainer = document.getElementById('bubbleContainer');
-            const voronoiSvg = document.getElementById('voronoiSvg');
-            const bubbleSvg = document.getElementById('bubbleSvg');
-
-            if (voronoiContainer.style.display !== 'none') {
-                // Transition from Voronoi to Bubble
-                voronoiSvg.classList.add('hidden');
-                setTimeout(() => {
-                    voronoiContainer.style.display = 'none';
-                    bubbleContainer.style.display = 'block';
-                    bubbleSvg.classList.remove('hidden');
-                    window.svgButton.buttonText.text('Switch to Treemap View');
-                    drawBubbleChart();
-                }, 300);
-            } else {
-                // Transition from Bubble to Voronoi
-                bubbleSvg.classList.add('hidden');
-                setTimeout(() => {
-                    bubbleContainer.style.display = 'none';
-                    voronoiContainer.style.display = 'block';
-                    voronoiSvg.classList.remove('hidden');
-                    window.svgButton.buttonText.text('Switch to Bubble View');
-                    // Clear bubble chart SVG
-                    bubbleSvg.innerHTML = '';
-                }, 300);
-            }
-        }
-
-        // Bubble chart function
-        function drawBubbleChart() {
-            const bubbleSvg = d3.select('#bubbleSvg');
-            const bubbleWidth = window.innerWidth;
-            const bubbleHeight = window.innerHeight;
-            const sizeDivisor = 100;
-            const nodePadding = 2.5;
-
-            bubbleSvg.attr('width', bubbleWidth).attr('height', bubbleHeight);
-
-            // Create fixed title group (not affected by zoom)
-            const titleGroup = bubbleSvg.append('g')
-                .classed('title-fixed', true)
-                .attr('transform', 'translate(0,0)');
-            
-            titleGroup.append('text')
-                .attr('x', 20)
-                .attr('y', 30)
-                .attr('text-anchor', 'start')
-                .style('font-size', '24px')
-                .style('fill', '#c41c3b')
-                .style('font-weight', '700')
-                .style('font-family', 'Gotham, "Helvetica Neue", sans-serif')
-                .style('pointer-events', 'none')
-                .text('Ringgit in Circulation, Over the Years');
-            
-            // Create fixed button group (not affected by zoom)
-            const buttonGroup = bubbleSvg.append('g')
-                .classed('button-fixed', true)
-                .attr('transform', `translate(${bubbleWidth / 2 - 60},45)`);
-            
-            const button = buttonGroup.append('rect')
-                .attr('width', 120)
-                .attr('height', 30)
-                .attr('rx', 4)
-                .style('fill', '#3498db')
-                .style('cursor', 'pointer')
-                .style('pointer-events', 'auto');
-            
-            const buttonText = buttonGroup.append('text')
-                .attr('x', 60)
-                .attr('y', 20)
-                .attr('text-anchor', 'middle')
-                .style('fill', 'white')
-                .style('font-size', '14px')
-                .style('font-weight', '500')
-                .style('pointer-events', 'none')
-                .text('Switch to Treemap View');
-            
-            // Update button reference
-            window.svgButton = { button, buttonText };
-            button.on('click', handleToggleView);
-            
-            // Create fixed legend group (not affected by zoom)
-            const legendGroup = bubbleSvg.append('g')
-                .classed('legend-fixed', true)
-                .attr('transform', `translate(10,${bubbleHeight - 15})`);
-            
-            // Draw legend for bubble view
-            const legendHeight = 20;
-            const interLegend = 5;
-            const iconSize = 18;
-            const denominations = hierarchy.data.children;
-            
-            const legends = legendGroup.selectAll('.legend')
-                .data(denominations)
-                .enter();
-            
-            const legend = legends.append('g')
-                .classed('legend', true)
-                .attr('transform', (d, i) => `translate(0,${-i * (legendHeight + interLegend)})`);
-            
-            // Determine if coin or note and create appropriate icon
-            legend.each(function(d) {
-                const isCoin = d.name.toLowerCase().includes('coin');
-                const g = d3.select(this);
-                
-                if (isCoin) {
-                    // Draw coin (circle with 3D effect)
-                    g.append('circle')
-                        .attr('cx', iconSize / 2)
-                        .attr('cy', iconSize / 2)
-                        .attr('r', iconSize / 2 - 1)
-                        .style('fill', d.color)
-                        .style('stroke', '#333')
-                        .style('stroke-width', '0.5');
-                    
-                    g.append('circle')
-                        .attr('cx', iconSize / 2)
-                        .attr('cy', iconSize / 2 - 1)
-                        .attr('r', iconSize / 3)
-                        .style('fill', 'none')
-                        .style('stroke', 'rgba(255,255,255,0.6)')
-                        .style('stroke-width', '0.5');
-                } else {
-                    // Use image from myr folder for notes
-                    // Extract denomination number from name (e.g., "note_1" -> "1")
-                    const denomMatch = d.name.match(/\d+/);
-                    if (denomMatch) {
-                        const denom = denomMatch[0];
-                        const imagePath = getNotePath(denom);
-                        
-                        g.append('image')
-                            .attr('xlink:href', imagePath)
-                            .attr('x', 0)
-                            .attr('y', 0)
-                            .attr('width', iconSize)
-                            .attr('height', iconSize)
-                            .style('opacity', 0.8);
-                    }
-                }
-            });
-            
-            legend.append('text')
-                .classed('tiny', true)
-                .attr('transform', `translate(${iconSize + 5},13)`)
-                .text(d => d.name);
-
-            const bubbleColor = d3.scaleOrdinal()
-                .domain(['RM1', 'RM5', 'RM10', 'RM20', 'RM50', 'RM100', 'Coins', 'Other'])
-                .range(['#e74c3c', '#e67e22', '#f39c12', '#f1c40f', '#2ecc71', '#3498db', '#9b59b6', '#1abc9c']);
-
-            const simulation = d3.forceSimulation()
-                .force('forceX', d3.forceX().strength(0.1).x(bubbleWidth * 0.5))
-                .force('forceY', d3.forceY().strength(0.1).y(bubbleHeight * 0.5))
-                .force('center', d3.forceCenter().x(bubbleWidth * 0.5).y(bubbleHeight * 0.5))
-                .force('charge', d3.forceManyBody().strength(-15));
-
-            // Get data from existing hierarchy
-            const bubbleData = hierarchy.leaves().map(d => ({
-                name: d.data.name,
-                value: d.value,
-                color: d.data.color
-            }));
-
-            bubbleData.sort((a, b) => b.value - a.value);
-
-            // Calculate radius
-            bubbleData.forEach(d => {
-                d.radius = Math.max(Math.sqrt(d.value) / 2, 3);
-            });
-
-            simulation
-                .nodes(bubbleData)
-                .force('collide', d3.forceCollide().strength(0.5).radius(d => d.radius + nodePadding).iterations(1))
-                .on('tick', () => {
-                    node
-                        .attr('cx', d => d.x)
-                        .attr('cy', d => d.y);
-                    labels
-                        .attr('transform', d => `translate(${d.x},${d.y})`);
-                });
-
-            const node = bubbleSvg.append('g')
-                .attr('class', 'node')
-                .selectAll('circle')
-                .data(bubbleData)
-                .enter()
-                .append('circle')
-                .attr('r', d => d.radius)
-                .attr('fill', d => d.color)
-                .attr('cx', d => d.x)
-                .attr('cy', d => d.y)
-                .style('stroke', '#3a403d')
-                .style('stroke-width', '0.5px')
-                .call(d3.drag()
-                    .on('start', dragstarted)
-                    .on('drag', dragged)
-                    .on('end', dragended));
-
-            const labels = bubbleSvg.append('g')
-                .selectAll('g')
-                .data(bubbleData)
-                .enter()
-                .append('g')
-                .attr('text-anchor', 'middle')
-                .attr('dy', '0.3em');
-
-            labels.append('text')
-                .style('font-size', d => Math.max(d.radius / 2, 10) + 'px')
-                .style('fill', 'white')
-                .style('font-weight', 'bold')
-                .style('text-shadow', '1px 1px 2px rgba(0,0,0,0.5)')
-                .text(d => d.name);
-
-            labels.append('title')
-                .text(d => `${d.name}\nRM ${d.value.toFixed(0)}`);
-
-            function dragstarted(d) {
-                if (!d3.event.active) simulation.alphaTarget(0.03).restart();
-                d.fx = d.x;
-                d.fy = d.y;
-            }
-
-            function dragged(d) {
-                d.fx = d3.event.x;
-                d.fy = d3.event.y;
-            }
-
-            function dragended(d) {
-                if (!d3.event.active) simulation.alphaTarget(0.03);
-                d.fx = null;
-                d.fy = null;
-            }
-        }
+        // Bubble view removed from this version
     </script>
 </body>
 </html>
